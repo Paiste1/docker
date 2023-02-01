@@ -1,0 +1,88 @@
+# Documentation: https://docs.docker.com/compose
+# Docker from parallels: `docker-machine create --parallels-disk-size=20480 --parallels-memory=4096 --parallels-cpu-count=2 --driver=parallels prl-test`
+# use our parallel docker: `eval $(docker-machine env prl-test)`
+
+version: '3.5'
+
+services:
+  proxy:
+    image: jwilder/nginx-proxy
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+    ports:
+      - '80:80'
+
+    networks:
+      - dev-back
+
+  web-back: &web-back
+    build: '.'
+    environment:
+      APP_ENV: 'dev'
+      APP_DEBUG: 'true'
+      DATABASE_URL: 'mysql://dev:dev@mysql:3306/dev'
+      VIRTUAL_HOST: dev.loc
+      PHP_IDE_CONFIG: 'serverName=docker'
+      XDEBUG_CONFIG: '172.17.0.1'
+
+    #command: tail -f /dev/null
+
+    volumes:
+      - ".:/srv/www"
+      - ".docker/etc/php/php-dev.ini:/etc/php/7.4/fpm/conf.d/60-dev.ini"
+      - ".docker/etc/php/php-cli.ini:/etc/php/7.4/cli/conf.d/60-dev.ini"
+      - '.docker/etc/roadrunner:/etc/roadrunner'
+
+    depends_on:
+      - memcached
+      - mysql
+      - proxy
+
+    networks:
+      - dev-back
+
+  php:
+    <<: *web-back
+    environment:
+      - APP_TYPE=dev
+      - APP_ENV=dev
+    networks:
+      - dev-back
+
+  mysql:
+    image: mysql:5.7
+    container_name: dev_mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    networks:
+      - dev-back
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: dev
+      MYSQL_USER: dev
+      MYSQL_PASSWORD: dev
+      VIRTUAL_HOST: mysql.dev.loc
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+  memcached:
+    image: memcached:1.5
+    container_name: dev_memcached
+    restart: unless-stopped
+    networks:
+      - dev-back
+
+    environment:
+      VIRTUAL_HOST: memcached.dev.loc
+
+volumes:
+  mysql-data:
+    name: dev_mysql_data
+
+networks:
+  dev-back:
+    driver: bridge
+
+# 172.17.0.1 dev.loc mysql.dev.loc memcached.dev.loc
+# echo "10.211.55.7 dev.loc mysql.dev.loc memcached.dev.loc" >> /etc/hosts
